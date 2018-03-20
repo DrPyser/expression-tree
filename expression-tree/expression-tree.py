@@ -2,12 +2,13 @@ import abc
 from utils import tupleclass
 
 class Expression(abc.ABC):
+    __slots__ = ()
     @abc.abstractmethod
     def evaluate(self, **context):
         pass
 
 
-class BooleanExpression(abc.ABC, Expression):
+class BooleanExpression(Expression):
     """Expression that evaluates to a boolean, i.e. a condition"""
     def __and__(self, other):
         return And((self, other))
@@ -17,6 +18,9 @@ class BooleanExpression(abc.ABC, Expression):
 
     def __inverse__(self):
         return Not(self)
+
+    def __bool__(self):
+        return self.evaluate()
     
 
 @tupleclass("clause")
@@ -24,9 +28,16 @@ class Not(BooleanExpression):
     def evaluate(self, **context):
         return not self.clause.evaluate(**context)
 
+
+@tupleclass("left", "right")
+class Equal(BooleanExpression):
+    def evaluate(self, **context):
+        return self.left.evaluate(**context) == self.right.evaluate(**context)
+    
     
 @tupleclass("value")
 class Boolean(BooleanExpression):
+    """Represent a value that can be interpreted as a boolean"""
     def evaluate(self, **context):
         return bool(self.value)
 
@@ -60,30 +71,7 @@ class In(BooleanExpression):
         return self.element.evaluate(**context) in self.container.evaluate(**context)
 
 
-@tupleclass("name")
-class Attribute(Expression):
-    """Represents an attribute in an object/namespace"""
-    def evaluate(self, **context):
-        obj = context.get("obj")
-        if obj:
-            return getattr(obj, self.name)
-
-
-@tupleclass("name")
-class Field(Expression):
-    """Represents a field in a mapping-like object"""
-    def evaluate(self, **context):
-        obj = context.get("obj")
-        if obj:
-            return obj[self.name]
-        
-    
-@tupleclass("value")
-class Value(Expression):
-    """Wraps a normal value"""
-    def __bool__(self):
-        return Boolean(self.value)
-
+class Comparable(Expression):
     def __gt__(self, other):
         return Greater(self, other)
 
@@ -104,6 +92,32 @@ class Value(Expression):
 
     def __contains__(self, item):
         return In(item, self)
+
+    
+
+@tupleclass("subject", "name")
+class Attribute(Comparable):
+    """Represents an attribute in an object/namespace"""
+    def evaluate(self, **context):
+        obj = context.get(self.subject)
+        if obj:
+            return getattr(obj, self.name)
+
+        
+@tupleclass("subject", "name")
+class Field(Comparable):
+    """Represents a field in a mapping-like object"""
+    def evaluate(self, **context):
+        obj = context.get(self.subject)
+        if obj:
+            return obj[self.name]
+        
+    
+@tupleclass("value")
+class Value(Comparable):
+    """Wraps a normal value"""
+    def __bool__(self):
+        return bool(self.value)
 
     def evaluate(self, **context):
         return self.value
