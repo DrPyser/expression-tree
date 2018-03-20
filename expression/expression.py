@@ -1,5 +1,6 @@
 import abc
 from utils import tupleclass
+from operator import methodcaller
 
 class Expression(abc.ABC):
     __slots__ = ()
@@ -21,6 +22,18 @@ class BooleanExpression(Expression):
 
     def __bool__(self):
         return self.evaluate()
+
+
+@tupleclass("clauses")
+class And(BooleanExpression):
+    def evaluate(self, **context):
+        return all(map(methodcaller("evaluate", **context), self.clauses))
+
+
+@tupleclass("clauses")
+class Or(BooleanExpression):
+    def evaluate(self, **context):
+        return any(map(methodcaller("evaluate", **context), self.clauses))
     
 
 @tupleclass("clause")
@@ -95,7 +108,7 @@ class Comparable(Expression):
 
     
 
-@tupleclass("subject", "name")
+@tupleclass("name", "subject")
 class Attribute(Comparable):
     """Represents an attribute in an object/namespace"""
     def evaluate(self, **context):
@@ -104,15 +117,15 @@ class Attribute(Comparable):
             return getattr(obj, self.name)
 
         
-@tupleclass("subject", "name")
+@tupleclass("name", "subject")
 class Field(Comparable):
-    """Represents a field in a mapping-like object"""
+    """Represents a field in a mapping-like object"""    
     def evaluate(self, **context):
         obj = context.get(self.subject)
         if obj:
             return obj[self.name]
+
         
-    
 @tupleclass("value")
 class Value(Comparable):
     """Wraps a normal value"""
@@ -121,3 +134,5 @@ class Value(Comparable):
 
     def evaluate(self, **context):
         return self.value
+
+
