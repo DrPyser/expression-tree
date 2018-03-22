@@ -1,6 +1,8 @@
 import abc
-from utils import tupleclass
-from operator import methodcaller
+from utils import tupleclass, resolver
+from operator import methodcaller, attrgetter
+from typing import Callable, Any, Iterable, Generic, TypeVar, List
+from functools import reduce
 
 class Expression(abc.ABC):
     __slots__ = ()
@@ -52,7 +54,8 @@ class Equal(BooleanExpression):
 class Boolean(BooleanExpression):
     """Represent a value that can be interpreted as a boolean"""
     def evaluate(self, **context):
-        return bool(self.value)
+        value = self.value.evaluate(**context)
+        return bool(value)
 
 @tupleclass("left", "right")
 class Greater(BooleanExpression):
@@ -135,4 +138,97 @@ class Value(Comparable):
     def evaluate(self, **context):
         return self.value
 
+
+@tupleclass("name")
+class Reference(Comparable):
+    def evaluate(self, **context):
+        root, path = self.name.split(".", maxsplit=1)
+        extractor = attrgetter(path)
+        return extractor(context.get(root))
+    
+
+@tupleclass("parameters", "expression")
+class Func(Expression):
+    def evaluate(self, **context):
+        expression = self.expression
+        r = resolver(self.parameters)
+        return lambda *args, **kwargs: expression.evaluate(**dict(context, **r(*args, **kwargs)))
+
+
+# Selectable interface    
+
+
+T = TypeVar("T")
+
+
+class Selectable(Expression):
+    def select(self, f: Func):
+        return Select(self, f)
+
+    def select_many(self, f: Func):
+        return SelectMany(self, f)
+
+    def filter(self, criterion: Func):
+        return Filter(self, criterion)
+
+    def reduce(self, f: Func):
+        return Reduce(self, f)
+
+    
+@tupleclass("source")
+class From(Selectable):
+    """Represent a source of data"""
+    source: Iterable[T]
+    def evaluate(self, **context):
+        return iter(self.source)
+
+    
+@tupleclass("source", "selection")
+class Select(Selectable):
+    """Represent an element-wise transformation on a source of data"""
+    source: Selectable
+    selection: Func
+    def evaluate(self, **context):
+        source = self.source.evaluate(**context)
+        func = self.selection.evaluate(**context)
+        return map(func, source)
+
+
+@tupleclass("source", "criterion")
+class Filter(Selectable):
+    """Represent a filtering on a source of data"""
+    source: Selectable
+    criterion: Func
+    def evaluate(self, **context):
+        source = self.source.evaluate(**context)
+        func = self.criterion.evaluate(**context)
+        return filter(func, source)
+
+
+@tupleclass("source", "expansion")
+class SelectMany(Selectable):
+    """Represent an expansion of the elements in a source of data"""
+    source: Selectable
+    expansion: Func
+    def evaluate(self, **context):
+        source = self.source.evaluate(**context)
+        func = self.expansion.evaluate(**context)
+        return (
+            x
+            for y in source
+            for x in func(y)
+        )
+
+R = TypeVar("R")
+
+@tupleclass("source", "reduction")
+class Reduce(Selectable):
+    """Represent a reduction on a source of data"""
+    source: Selectable
+    reduction: Callable[[R, T], R]
+    def evaluate(self, **context):
+        source = self.source.evaluate(**context)
+        reduction = self.reduction.evaluate(**context)
+        return reduce(reduction, source)
+    
 
